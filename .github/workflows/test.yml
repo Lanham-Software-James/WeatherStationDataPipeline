@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  test:
+    name: Test ${{ matrix.service }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - subscriber-logger
+          - subscriber-db
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.service }}/go.mod
+          cache-dependency-path: ${{ matrix.service }}/go.sum
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: go test -v -count=1 ./...
