@@ -9,31 +9,40 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-type Telemetry struct {
-	StationID   string  `json:"station_id"`
-	Timestamp   string  `json:"timestamp"`
+const subscribeTopic = "weather/+/telemetry"
+
+type Observation struct {
+	Ts          string  `json:"ts"`
 	TempC       float64 `json:"temperature_c"`
 	HumidityPct float64 `json:"humidity_pct"`
 	PressureHPa float64 `json:"pressure_hpa"`
 }
 
-const subscribeTopic = "weather/+/telemetry"
+type ObservationBatch struct {
+	StationID string        `json:"station_id"`
+	SentAt    string        `json:"sent_at"`
+	Samples   []Observation `json:"samples"`
+}
 
 func handler(_ mqtt.Client, msg mqtt.Message) {
-	var t Telemetry
-	if err := json.Unmarshal(msg.Payload(), &t); err != nil {
+	var batch ObservationBatch
+	if err := json.Unmarshal(msg.Payload(), &batch); err != nil {
 		fmt.Printf("[%s] (unparseable) %s\n", msg.Topic(), string(msg.Payload()))
 		return
 	}
-	fmt.Printf(
-		"[%s] station=%-12s  temp=%5.1f°C  humidity=%5.1f%%  pressure=%7.1fhPa  wind=%4.1fm/s @ %5.1f°  rain=%4.1fmm  ts=%s\n",
-		msg.Topic(),
-		t.StationID,
-		t.TempC,
-		t.HumidityPct,
-		t.PressureHPa,
-		t.Timestamp,
-	)
+
+	for _, s := range batch.Samples {
+		fmt.Printf(
+			"[%s] station=%-12s  temp=%5.1f°C  humidity=%5.1f%%  pressure=%7.1fhPa  ts=%s  sent_at=%s\n",
+			msg.Topic(),
+			batch.StationID,
+			s.TempC,
+			s.HumidityPct,
+			s.PressureHPa,
+			s.Ts,
+			batch.SentAt,
+		)
+	}
 }
 
 func mustEnv(key, fallback string) string {

@@ -6,14 +6,33 @@ services:
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
 
-  publisher-sim:
-    build: ./publisher-sim
+  postgres:
+    image: postgres:16
     environment:
-      - MQTT_BROKER=tcp://mosquitto:1883
-      - STATION_ID=station-001
-      - PUBLISH_INTERVAL_SEC=5
+      POSTGRES_USER: weather
+      POSTGRES_PASSWORD: weather
+      POSTGRES_DB: weather
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-migrate:
+    image: migrate/migrate
+    volumes:
+      - ./db/migrations:/migrations
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://weather:weather@postgres:5432/weather?sslmode=disable"
+      - "up"
     depends_on:
-      - mosquitto
+      postgres:
+        condition: service_healthy
     restart: on-failure
 
   subscriber-logger:
@@ -23,3 +42,18 @@ services:
     depends_on:
       - mosquitto
     restart: on-failure
+
+  subscriber-db:
+    build: ./subscriber-db
+    environment:
+      - MQTT_BROKER=tcp://mosquitto:1883
+      - DATABASE_URL=postgres://weather:weather@postgres:5432/weather?sslmode=disable
+    depends_on:
+      mosquitto:
+        condition: service_started
+      db-migrate:
+        condition: service_completed_successfully
+    restart: on-failure
+
+volumes:
+  postgres-data:
