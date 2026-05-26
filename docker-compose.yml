@@ -1,0 +1,25 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  publisher-sim:
+    build: ./publisher-sim
+    environment:
+      - MQTT_BROKER=tcp://mosquitto:1883
+      - STATION_ID=station-001
+      - PUBLISH_INTERVAL_SEC=5
+    depends_on:
+      - mosquitto
+    restart: on-failure
+
+  subscriber-logger:
+    build: ./subscriber-logger
+    environment:
+      - MQTT_BROKER=tcp://mosquitto:1883
+    depends_on:
+      - mosquitto
+    restart: on-failure
