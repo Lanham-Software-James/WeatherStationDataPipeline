@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -24,17 +25,17 @@ type ObservationBatch struct {
 	Samples   []Observation `json:"samples"`
 }
 
-func handler(_ mqtt.Client, msg mqtt.Message) {
+func processPayload(topic string, payload []byte, w io.Writer) {
 	var batch ObservationBatch
-	if err := json.Unmarshal(msg.Payload(), &batch); err != nil {
-		fmt.Printf("[%s] (unparseable) %s\n", msg.Topic(), string(msg.Payload()))
+	if err := json.Unmarshal(payload, &batch); err != nil {
+		fmt.Fprintf(w, "[%s] (unparseable) %s\n", topic, string(payload))
 		return
 	}
 
 	for _, s := range batch.Samples {
-		fmt.Printf(
+		fmt.Fprintf(w,
 			"[%s] station=%-12s  temp=%5.1f°C  humidity=%5.1f%%  pressure=%7.1fhPa  ts=%s  sent_at=%s\n",
-			msg.Topic(),
+			topic,
 			batch.StationID,
 			s.TempC,
 			s.HumidityPct,
@@ -43,6 +44,10 @@ func handler(_ mqtt.Client, msg mqtt.Message) {
 			batch.SentAt,
 		)
 	}
+}
+
+func handler(_ mqtt.Client, msg mqtt.Message) {
+	processPayload(msg.Topic(), msg.Payload(), os.Stdout)
 }
 
 func mustEnv(key, fallback string) string {
