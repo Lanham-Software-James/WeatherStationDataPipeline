@@ -22,6 +22,7 @@ type Observation struct {
 type ObservationBatch struct {
 	StationID string        `json:"station_id"`
 	SentAt    string        `json:"sent_at"`
+	RssiDbm   int           `json:"rssi_dbm"`
 	Samples   []Observation `json:"samples"`
 }
 
@@ -34,12 +35,13 @@ func processPayload(topic string, payload []byte, w io.Writer) {
 
 	for _, s := range batch.Samples {
 		fmt.Fprintf(w,
-			"[%s] station=%-12s  temp=%5.1f°C  humidity=%5.1f%%  pressure=%7.1fhPa  ts=%s  sent_at=%s\n",
+			"[%s] station=%-12s  temp=%5.1f°C  humidity=%5.1f%%  pressure=%7.1fhPa  rssi=%4ddBm  ts=%s  sent_at=%s\n",
 			topic,
 			batch.StationID,
 			s.TempC,
 			s.HumidityPct,
 			s.PressureHPa,
+			batch.RssiDbm,
 			s.Ts,
 			batch.SentAt,
 		)
