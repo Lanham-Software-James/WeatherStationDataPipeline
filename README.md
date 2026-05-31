@@ -4,7 +4,7 @@ Go-based aggregation backend — the data collection layer of a hyper-localized 
 
 ## Overview
 
-Each weather station publishes batches of temperature, humidity, and barometric pressure readings to an MQTT broker at regular intervals. This pipeline subscribes to those batches, fans them out to independent consumers, and stores the timeseries in a PostgreSQL database. The collected data feeds an ML pipeline for local weather forecasting.
+Each weather station publishes batches of temperature, humidity, barometric pressure, and RSSI signal-strength readings to an MQTT broker at regular intervals. This pipeline subscribes to those batches, fans them out to independent consumers, and stores the timeseries in a PostgreSQL database. The collected data feeds an ML pipeline for local weather forecasting.
 
 This repository contains only the aggregation backend. The sensor firmware and ML training pipeline are separate components of the broader system.
 
@@ -68,6 +68,7 @@ Stations publish to the topic `weather/<station_id>/telemetry`. Both subscribers
 {
   "station_id": "station_001",
   "sent_at": "2023-11-14T16:01:00Z",
+  "rssi_dbm": -68,
   "samples": [
     {
       "ts": "2023-11-14T16:00:00Z",
