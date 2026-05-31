@@ -87,9 +87,9 @@ func resetDB(t *testing.T) {
 	}
 }
 
-func batchPayload(t *testing.T, stationID, sentAt string, samples []Observation) []byte {
+func batchPayload(t *testing.T, stationID, sentAt string, rssiDbm int, samples []Observation) []byte {
 	t.Helper()
-	b, err := json.Marshal(ObservationBatch{StationID: stationID, SentAt: sentAt, Samples: samples})
+	b, err := json.Marshal(ObservationBatch{StationID: stationID, SentAt: sentAt, RssiDbm: rssiDbm, Samples: samples})
 	if err != nil {
 		t.Fatalf("marshal batch: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestHandleMessage_AutoCreatesStation(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: nowISO(), TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1013.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
@@ -127,7 +127,7 @@ func TestHandleMessage_StationNotDuplicated(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: nowISO(), TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1013.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
@@ -148,7 +148,7 @@ func TestHandleMessage_InsertsReading(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 20.0, HumidityPct: 55.0, PressureHPa: 1010.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
@@ -168,7 +168,7 @@ func TestHandleMessage_TemperatureStoredAsF(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: nowISO(), TempC: 0.0, HumidityPct: 50.0, PressureHPa: 1013.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
@@ -183,12 +183,40 @@ func TestHandleMessage_TemperatureStoredAsF(t *testing.T) {
 	}
 }
 
+// RSSI must be stored on the reading and propagated to latest_station_readings.
+func TestHandleMessage_RssiStored(t *testing.T) {
+	resetDB(t)
+	handler := makeHandler(testPool)
+
+	payload := batchPayload(t, "station-000", nowISO(), -72, []Observation{
+		{Ts: nowISO(), TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1013.0},
+	})
+	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
+
+	var rssiReading, rssiLatest int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT rssi_dbm FROM readings WHERE station_id = 'station-000'`).Scan(&rssiReading); err != nil {
+		t.Fatalf("query readings.rssi_dbm: %v", err)
+	}
+	if rssiReading != -72 {
+		t.Errorf("expected readings.rssi_dbm = -72, got %d", rssiReading)
+	}
+
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT rssi_dbm FROM latest_station_readings WHERE station_id = 'station-000'`).Scan(&rssiLatest); err != nil {
+		t.Fatalf("query latest_station_readings.rssi_dbm: %v", err)
+	}
+	if rssiLatest != -72 {
+		t.Errorf("expected latest_station_readings.rssi_dbm = -72, got %d", rssiLatest)
+	}
+}
+
 // A multi-sample batch inserts one reading row per sample.
 func TestHandleMessage_MultiSampleBatch(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1010.0},
 		{Ts: "2026-05-26T12:01:00Z", TempC: 21.0, HumidityPct: 51.0, PressureHPa: 1011.0},
 		{Ts: "2026-05-26T12:02:00Z", TempC: 22.0, HumidityPct: 52.0, PressureHPa: 1012.0},
@@ -210,7 +238,7 @@ func TestHandleMessage_PopulatesLatest(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 25.0, HumidityPct: 60.0, PressureHPa: 1005.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
@@ -230,12 +258,12 @@ func TestHandleMessage_LatestUpdatedByNewerSample(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload1 := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload1 := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1000.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload1})
 
-	payload2 := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload2 := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:10:00Z", TempC: 30.0, HumidityPct: 70.0, PressureHPa: 1010.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload2})
@@ -256,13 +284,13 @@ func TestHandleMessage_LatestNotOverwrittenByOlderSample(t *testing.T) {
 	handler := makeHandler(testPool)
 
 	// Newer arrives first.
-	payload1 := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload1 := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:10:00Z", TempC: 30.0, HumidityPct: 70.0, PressureHPa: 1010.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload1})
 
 	// Older arrives second (e.g. replayed or out-of-order).
-	payload2 := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload2 := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1000.0},
 	})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload2})
@@ -282,7 +310,7 @@ func TestHandleMessage_EmptySamples_NoWrite(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{})
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{})
 	handler(nil, mockMsg{topic: "weather/station-000/telemetry", payload: payload})
 
 	var count int
@@ -320,7 +348,7 @@ func TestHandleMessage_BadTimestamp_ValidSamplesStillWritten(t *testing.T) {
 	resetDB(t)
 	handler := makeHandler(testPool)
 
-	payload := batchPayload(t, "station-000", nowISO(), []Observation{
+	payload := batchPayload(t, "station-000", nowISO(), -65, []Observation{
 		{Ts: "2026-05-26T12:00:00Z", TempC: 20.0, HumidityPct: 50.0, PressureHPa: 1010.0},
 		{Ts: "not-a-timestamp", TempC: 21.0, HumidityPct: 51.0, PressureHPa: 1011.0},
 		{Ts: "2026-05-26T12:02:00Z", TempC: 22.0, HumidityPct: 52.0, PressureHPa: 1012.0},
