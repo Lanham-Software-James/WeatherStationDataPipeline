@@ -11,6 +11,8 @@ func TestProcessPayload_SingleSample(t *testing.T) {
 		"station_id": "station-000",
 		"sent_at":    "2026-05-26T23:01:45Z",
 		"rssi_dbm":   -72,
+		"battery_voltage": 3.85,
+		"battery_percent_estimate": 78,
 		"samples": [
 			{"ts": "2026-05-26T23:01:45Z", "temperature_c": 23.5, "humidity_pct": 53.5, "pressure_hpa": 989.3}
 		]
@@ -25,7 +27,7 @@ func TestProcessPayload_SingleSample(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 log line, got %d: %q", len(lines), out)
 	}
-	for _, want := range []string{"station-000", "23.5", "53.5", "989.3", "2026-05-26T23:01:45Z", "-72"} {
+	for _, want := range []string{"station-000", "23.5", "53.5", "989.3", "2026-05-26T23:01:45Z", "-72", "3.85", "78"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}

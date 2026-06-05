@@ -21,10 +21,12 @@ type Observation struct {
 }
 
 type ObservationBatch struct {
-	StationID string        `json:"station_id"`
-	SentAt    string        `json:"sent_at"`
-	RssiDbm   int           `json:"rssi_dbm"`
-	Samples   []Observation `json:"samples"`
+	StationID              string        `json:"station_id"`
+	SentAt                 string        `json:"sent_at"`
+	RssiDbm                int           `json:"rssi_dbm"`
+	BatteryVoltage         float64       `json:"battery_voltage"`
+	BatteryPercentEstimate float64       `json:"battery_percent_estimate"`
+	Samples                []Observation `json:"samples"`
 }
 
 func cToF(c float64) float64 { return c*9/5 + 32 }
@@ -79,8 +81,8 @@ func makeHandler(pool *pgxpool.Pool) mqtt.MessageHandler {
 			var readingID int64
 			err = tx.QueryRow(ctx, `
 				INSERT INTO readings
-					(station_id, recorded_at, temperature_f, humidity_percent, pressure_hpa, rssi_dbm, raw_payload)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)
+					(station_id, recorded_at, temperature_f, humidity_percent, pressure_hpa, rssi_dbm, battery_v, battery_percent_estimate, raw_payload)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 				RETURNING id`,
 				batch.StationID,
 				recordedAt,
@@ -88,6 +90,8 @@ func makeHandler(pool *pgxpool.Pool) mqtt.MessageHandler {
 				s.HumidityPct,
 				s.PressureHPa,
 				batch.RssiDbm,
+				batch.BatteryVoltage,
+				batch.BatteryPercentEstimate,
 				sampleJSON,
 			).Scan(&readingID)
 			if err != nil {
@@ -98,17 +102,19 @@ func makeHandler(pool *pgxpool.Pool) mqtt.MessageHandler {
 			_, err = tx.Exec(ctx, `
 				INSERT INTO latest_station_readings
 					(station_id, reading_id, recorded_at, received_at,
-					 temperature_f, humidity_percent, pressure_hpa, rssi_dbm, updated_at)
-				VALUES ($1, $2, $3, now(), $4, $5, $6, $7, now())
+					 temperature_f, humidity_percent, pressure_hpa, rssi_dbm, battery_v, battery_percent_estimate, updated_at)
+				VALUES ($1, $2, $3, now(), $4, $5, $6, $7, $8, $9, now())
 				ON CONFLICT (station_id) DO UPDATE SET
-					reading_id       = EXCLUDED.reading_id,
-					recorded_at      = EXCLUDED.recorded_at,
-					received_at      = EXCLUDED.received_at,
-					temperature_f    = EXCLUDED.temperature_f,
-					humidity_percent = EXCLUDED.humidity_percent,
-					pressure_hpa     = EXCLUDED.pressure_hpa,
-					rssi_dbm         = EXCLUDED.rssi_dbm,
-					updated_at       = now()
+					reading_id              = EXCLUDED.reading_id,
+					recorded_at             = EXCLUDED.recorded_at,
+					received_at             = EXCLUDED.received_at,
+					temperature_f           = EXCLUDED.temperature_f,
+					humidity_percent        = EXCLUDED.humidity_percent,
+					pressure_hpa            = EXCLUDED.pressure_hpa,
+					rssi_dbm                = EXCLUDED.rssi_dbm,
+					battery_v               = EXCLUDED.battery_v,
+					battery_percent_estimate = EXCLUDED.battery_percent_estimate,
+					updated_at              = now()
 				WHERE latest_station_readings.recorded_at < EXCLUDED.recorded_at`,
 				batch.StationID,
 				readingID,
@@ -117,14 +123,16 @@ func makeHandler(pool *pgxpool.Pool) mqtt.MessageHandler {
 				s.HumidityPct,
 				s.PressureHPa,
 				batch.RssiDbm,
+				batch.BatteryVoltage,
+				batch.BatteryPercentEstimate,
 			)
 			if err != nil {
 				fmt.Printf("[subscriber-db] latest upsert error: %v\n", err)
 				return
 			}
 
-			fmt.Printf("[subscriber-db] reading_id=%d station=%s recorded_at=%s temp=%.1f°F rssi=%ddBm\n",
-				readingID, batch.StationID, recordedAt.Format(time.RFC3339), cToF(s.TempC), batch.RssiDbm)
+			fmt.Printf("[subscriber-db] reading_id=%d station=%s recorded_at=%s temp=%.1f°F rssi=%ddBm battery=%.2fV(%.0f%%)\n",
+				readingID, batch.StationID, recordedAt.Format(time.RFC3339), cToF(s.TempC), batch.RssiDbm, batch.BatteryVoltage, batch.BatteryPercentEstimate)
 		}
 
 		if err = tx.Commit(ctx); err != nil {
