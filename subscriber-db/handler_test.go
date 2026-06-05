@@ -62,13 +62,18 @@ func TestMain(m *testing.M) {
 		panic(fmt.Sprintf("create pool: %v", err))
 	}
 
-	// Apply the real migration so tests run against the actual schema.
-	sql, err := os.ReadFile("../db/migrations/000001_initial_schema.up.sql")
-	if err != nil {
-		panic(fmt.Sprintf("read migration file: %v", err))
-	}
-	if _, err = testPool.Exec(ctx, string(sql)); err != nil {
-		panic(fmt.Sprintf("apply migration: %v", err))
+	// Apply all migrations so tests run against the actual schema.
+	for _, migration := range []string{
+		"../db/migrations/000001_initial_schema.up.sql",
+		"../db/migrations/000002_add_battery_percent_estimate.up.sql",
+	} {
+		sql, err := os.ReadFile(migration)
+		if err != nil {
+			panic(fmt.Sprintf("read migration file %s: %v", migration, err))
+		}
+		if _, err = testPool.Exec(ctx, string(sql)); err != nil {
+			panic(fmt.Sprintf("apply migration %s: %v", migration, err))
+		}
 	}
 
 	code := m.Run()
